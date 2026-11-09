@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>두더지 잡기</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;700&display=swap">
+<style>
+/* Layout: one centered game column — header + stats, timer bar, 3×3 field with overlays on top */
+:root {
+  --bg: #f4efe1;
+  --ink: #1f2a1a;
+  --muted: #4d5a45;
+  --paper: #ffffff;
+  --grass: #6fae4f;
+  --soil: #8b5a34;
+  --hole: #3a2617;
+  --accent: #f5922b;
+  --accent-hover: #e07a12;
+  --gold: #ffd23f;
+  --silver: #d9dde3;
+  --bronze: #e7a26b;
+  --danger: #c23434;
+  --scrim: rgba(31, 42, 26, 0.8);
+  --on-scrim: #ffffff;
+  --on-scrim-muted: #d6dccd;
+  --display: 'Jua', 'Noto Sans KR', system-ui, sans-serif;
+  --body: 'Noto Sans KR', system-ui, sans-serif;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--bg); color: var(--ink); }
+body { margin: 0; font-family: var(--body); }
+.wrap {
+  max-width: 720px; margin: 0 auto;
+  padding-block: 24px 32px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 18px;
+}
+header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.titles { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: clamp(40px, 9vw, 52px); line-height: 1; text-wrap: balance; }
+.sub { margin: 0; font-size: 15px; color: var(--muted); }
+.pill-btn {
+  align-self: flex-start; min-height: 36px; padding: 0 14px;
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 2px solid var(--ink); border-radius: 999px; background: var(--paper); color: var(--ink);
+  font: 700 14px var(--body); cursor: pointer;
+}
+.pill-btn:hover { background: #eef0e6; }
+.stats { display: flex; gap: 10px; }
+.stat {
+  width: 108px; padding: 10px 12px;
+  background: var(--paper); border: 2px solid var(--ink); border-radius: 14px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  color: var(--ink); font-family: var(--body);
+}
+.stat .lbl { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.stat .val { font-family: var(--display); font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; }
+.stat.dark { background: var(--ink); color: var(--bg); cursor: pointer; }
+.stat.dark .lbl { color: var(--on-scrim-muted); }
+.stat.dark:hover { background: #334230; }
+.stat.dark:disabled { cursor: default; }
+.low { color: var(--danger); }
+.bar { height: 14px; background: var(--paper); border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; }
+.bar > div { height: 100%; width: 100%; background: var(--accent); transition: width 100ms linear; }
+.bar.low > div { background: #d64545; }
+
+.field {
+  position: relative; background: var(--grass);
+  border: 3px solid var(--ink); border-radius: 28px;
+  padding: clamp(12px, 3.5vw, 24px);
+}
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(6px, 2vw, 12px); }
+.hole {
+  position: relative; aspect-ratio: 1 / 0.95; width: 100%;
+  padding: 0; border: 0; background: transparent; cursor: pointer;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.hole > * { pointer-events: none; }
+.hole .back { position: absolute; left: 7%; right: 7%; bottom: 12%; height: 28%; border-radius: 50%; background: var(--hole); }
+.hole .view { position: absolute; left: 16%; right: 16%; bottom: 25%; height: 74%; overflow: hidden; }
+.hole .mole { position: absolute; inset: 0; transform: translateY(105%); transition: transform 80ms ease-out; }
+.hole.up .mole { transform: translateY(0); }
+.hole .mole svg { width: 100%; height: 100%; display: block; }
+.hole .lip {
+  position: absolute; left: 2%; right: 2%; bottom: 4%; height: 22%;
+  border-radius: 0 0 50% 50% / 0 0 100% 100%;
+  background: var(--soil); border: 3px solid var(--ink); border-top: 0;
+}
+.hole .x-eyes, .hole .star { display: none; }
+.hole.hit .x-eyes, .hole.hit .star { display: inline; }
+.hole.hit .eyes { display: none; }
+
+.overlay {
+  position: absolute; inset: 0; border-radius: 25px; background: var(--scrim); color: var(--on-scrim);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  text-align: center; padding: 20px; overflow-y: auto;
+}
+.overlay h2 { margin: 0; font-family: var(--display); font-weight: 400; line-height: 1; }
+.overlay p { margin: 0; }
+.big { font-size: clamp(56px, 16vw, 88px); }
+.kicker { font-size: 18px; font-weight: 700; color: var(--on-scrim-muted); }
+.chip { padding: 6px 16px; border-radius: 999px; background: var(--gold); color: var(--ink); font-weight: 700; font-size: 16px; }
+.gold-text { color: var(--gold); font-weight: 700; font-size: 17px; }
+.btn-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.cta {
+  min-height: 56px; padding: 0 34px; border: 3px solid var(--ink); border-radius: 999px;
+  background: var(--accent); color: var(--ink); font: 400 26px var(--display); cursor: pointer;
+}
+.cta:hover { background: var(--accent-hover); }
+.ghost {
+  min-height: 56px; padding: 0 24px; border: 2px solid var(--on-scrim); border-radius: 999px;
+  background: transparent; color: var(--on-scrim); font: 400 22px var(--display); cursor: pointer;
+}
+.ghost:hover { background: rgba(255, 255, 255, 0.14); }
+form { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+#name {
+  width: 200px; max-width: 100%; height: 64px; border: 3px solid var(--ink); border-radius: 16px;
+  background: var(--paper); color: var(--ink); font: 400 36px var(--display); text-align: center; letter-spacing: 4px;
+}
+.err { color: #ffb4a8; font-size: 14px; font-weight: 700; min-height: 1em; }
+
+.modal-scrim { position: absolute; inset: 0; border-radius: 25px; background: rgba(31, 42, 26, 0.6); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.modal {
+  width: 440px; max-width: 100%; max-height: 100%; overflow-y: auto;
+  padding: 22px; background: var(--bg); color: var(--ink);
+  border: 3px solid var(--ink); border-radius: 22px; display: flex; flex-direction: column; gap: 12px;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.modal h2 { margin: 0; font: 400 30px var(--display); line-height: 1; }
+.icon-btn { width: 44px; height: 44px; flex: none; display: flex; align-items: center; justify-content: center; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper); cursor: pointer; }
+.icon-btn:hover { background: #e6e0cf; }
+ol.ranks { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+ol.ranks li { height: 38px; padding: 0 12px; display: flex; align-items: center; gap: 12px; border-radius: 10px; }
+ol.ranks li:nth-child(odd) { background: var(--paper); }
+ol.ranks li.mine { background: var(--gold); }
+.medal { width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; font: 400 17px var(--display); }
+.r-name { flex: 1; min-width: 0; font: 400 22px var(--display); letter-spacing: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.r-name.empty { color: var(--muted); }
+.r-score { font: 400 22px var(--display); font-variant-numeric: tabular-nums; }
+.note { margin: 0; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.live { background: #2f8f3a; }
+
+button:focus-visible, input:focus-visible { outline: 4px solid var(--ink); outline-offset: 2px; }
+.overlay button:focus-visible, .stat.dark:focus-visible { outline-color: var(--accent); }
+@media (max-width: 560px) {
+  .stats { width: 100%; }
+  .stat { flex: 1; width: auto; }
+  .field { min-height: 480px; display: flex; flex-direction: column; }
+  .grid { flex: 1; align-content: space-evenly; row-gap: 10px; }
+  .overlay { gap: 12px; padding: 24px 16px; }
+  .modal-scrim { padding: 10px; }
+  .modal { padding: 18px 16px; gap: 10px; }
+  .modal h2 { font-size: 26px; }
+  ol.ranks { gap: 2px; }
+  ol.ranks li { height: 31px; }
+  .medal { width: 24px; height: 24px; font-size: 15px; }
+  .r-name, .r-score { font-size: 19px; }
+  .modal-head .icon-btn { width: 40px; height: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hole .mole, .bar > div { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="titles">
+      <h1>두더지 잡기</h1>
+      <p class="sub">튀어나온 두더지를 클릭해서 점수를 올리세요</p>
+      <button id="soundBtn" class="pill-btn" type="button" aria-pressed="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 9 H8 L13 5 V19 L8 15 H4 Z"></path>
+          <path id="waves" d="M16.5 8.5 a5 5 0 0 1 0 7 M19.5 5.5 a9 9 0 0 1 0 13"></path>
+          <path id="cross" d="M17 9 L22 14 M22 9 L17 14" style="display: none"></path>
+        </svg>
+        <span id="soundLabel">소리 켜짐</span>
+      </button>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="lbl">점수</span><span class="val" id="score">0</span></div>
+      <div class="stat"><span class="lbl">남은 시간</span><span class="val" id="time">30초</span></div>
+      <button class="stat dark" id="bestBtn" type="button" aria-label="최고 기록, 순위 TOP 10 보기">
+        <span class="lbl">최고 기록
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6 L15 12 L9 18"></path></svg>
+        </span>
+        <span class="val" id="best">0</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="bar" id="bar" role="progressbar" aria-label="남은 시간" aria-valuemin="0" aria-valuemax="30" aria-valuenow="30"><div id="barFill"></div></div>
+
+  <div class="field">
+    <div class="grid" id="grid"></div>
+
+    <div class="overlay" id="readyOv">
+      <h2 style="font-size: clamp(34px, 9vw, 44px)">준비됐나요?</h2>
+      <p style="font-size: 17px; line-height: 1.6">30초 동안 두더지를 최대한 많이 잡으세요.<br>시간이 갈수록 두더지가 더 빨라집니다.</p>
+      <div class="btn-row">
+        <button class="cta" type="button" data-act="start">게임 시작</button>
+        <button class="ghost" type="button" data-act="board">순위 보기</button>
+      </div>
+    </div>
+
+    <div class="overlay" id="overOv" hidden>
+      <p class="kicker">시간 끝!</p>
+      <h2 class="big"><span id="finalScore">0</span>점</h2>
+      <p class="chip" id="newBest" hidden>새 최고 기록!</p>
+      <p class="gold-text" id="rankMsg" hidden></p>
+      <p style="font-size: 16px; color: var(--on-scrim-muted)" id="bestLine">최고 기록 <span id="bestLineVal">0</span>점</p>
+      <div class="btn-row" style="margin-top: 8px">
+        <button class="cta" type="button" data-act="start">다시 하기</button>
+        <button class="ghost" type="button" data-act="board">순위 보기</button>
+      </div>
+    </div>
+
+    <div class="overlay" id="entryOv" hidden>
+      <p class="kicker">시간 끝!</p>
+      <h2 class="big" style="font-size: clamp(52px, 14vw, 80px)"><span id="entryScore">0</span>점</h2>
+      <p class="chip"><span id="entryRank">1등</span> 기록이에요!</p>
+      <form id="entryForm" autocomplete="off">
+        <label for="name" style="font-size: 16px">이름을 남겨주세요 (최대 3글자)</label>
+        <input id="name" type="text" maxlength="3" placeholder="ABC" spellcheck="false">
+        <p class="err" id="entryErr" role="alert"></p>
+        <div class="btn-row">
+          <button class="cta" type="submit" id="submitBtn" style="font-size: 24px; min-height: 52px">등록</button>
+          <button class="ghost" type="button" id="skipBtn" style="font-size: 20px; min-height: 52px">건너뛰기</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="modal-scrim" id="boardOv" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="boardTitle">
+        <div class="modal-head">
+          <h2 id="boardTitle">기록 순위 TOP 10</h2>
+          <button class="icon-btn" type="button" id="closeBoard" aria-label="닫기">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18"></path></svg>
+          </button>
+        </div>
+        <ol class="ranks" id="ranks"></ol>
+        <p class="note"><span class="dot" id="syncDot"></span><span id="syncText">순위를 불러오는 중…</span></p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ================= 설정: 이 두 줄만 바꾸세요 =================
+  // Supabase 대시보드 > Project Settings > API Keys(또는 Connect)에서 복사해요.
+  // 반드시 공개용 키(publishable 또는 anon public)를 쓰세요. secret / service_role 키는 절대 넣지 마세요.
+  window.MOLE_CONFIG = {
+    SUPABASE_URL: 'https://bvlslvfnyfhaidedxtkq.supabase.co',
+    SUPABASE_KEY: 'sb_publishable_I6AVvPJjOIFNEXtfGYaDLg_8H4FXpDA'
+  };
+  // ============================================================
+</script>
+<script>
+(function () {
+  const DURATION = 30000;
+  const LOCAL_KEY = 'mole-whack-top10';
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- holes ----------
+  const MOLE_SVG =
+    '<svg viewBox="0 0 120 130" preserveAspectRatio="xMidYMax meet" aria-hidden="true">' +
+    '<path d="M10 132 V62 a50 50 0 0 1 100 0 V132 Z" fill="#7a5233" stroke="#1f2a1a" stroke-width="3"/>' +
+    '<ellipse cx="60" cy="112" rx="32" ry="26" fill="#a87a52"/>' +
+    '<ellipse cx="60" cy="78" rx="23" ry="16" fill="#ecc9a3" stroke="#1f2a1a" stroke-width="2.5"/>' +
+    '<ellipse cx="60" cy="69" rx="9" ry="6" fill="#e46a7a" stroke="#1f2a1a" stroke-width="2"/>' +
+    '<rect x="54" y="86" width="12" height="9" rx="2" fill="#ffffff" stroke="#1f2a1a" stroke-width="2"/>' +
+    '<g class="eyes"><circle cx="40" cy="52" r="7" fill="#1b1410"/><circle cx="80" cy="52" r="7" fill="#1b1410"/>' +
+    '<circle cx="42.5" cy="49.5" r="2.2" fill="#ffffff"/><circle cx="82.5" cy="49.5" r="2.2" fill="#ffffff"/></g>' +
+    '<path class="x-eyes" d="M33 45 L47 59 M47 45 L33 59 M73 45 L87 59 M87 45 L73 59" stroke="#1b1410" stroke-width="4" stroke-linecap="round" fill="none"/>' +
+    '<path class="star" d="M60 4 L63 12 L71 12 L65 17 L67 25 L60 20 L53 25 L55 17 L49 12 L57 12 Z" fill="#ffd23f" stroke="#1f2a1a" stroke-width="2" stroke-linejoin="round"/>' +
+    '</svg>';
+  const holes = [];
+  for (let i = 0; i < 9; i++) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'hole';
+    b.setAttribute('aria-label', (i + 1) + '번 구멍');
+    b.innerHTML = '<div class="back"></div><div class="view"><div class="mole">' + MOLE_SVG + '</div></div><div class="lip"></div>';
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); whack(i); });
+    b.addEventListener('click', (e) => { if (e.detail === 0) whack(i); }); // keyboard
+    $('grid').appendChild(b);
+    holes.push(b);
+  }
+
+  // ---------- sound ----------
+  let ac = null, muted = false;
+  function audio() {
+    if (!ac) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { ac = new AC(); } catch (e) { return null; }
+    }
+    if (ac.state === 'suspended') ac.resume();
+    return ac;
+  }
+  function tone(freq, dur, type, vol, slideTo, delay) {
+    if (muted) return;
+    const a = audio(); if (!a) return;
+    const t = a.currentTime + (delay || 0);
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(t); o.stop(t + dur + 0.03);
+  }
+  function thud(vol) {
+    if (muted) return;
+    const a = audio(); if (!a) return;
+    const t = a.currentTime, len = Math.floor(a.sampleRate * 0.09);
+    const buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = a.createBufferSource(); src.buffer = buf;
+    const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400;
+    const g = a.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    src.connect(f); f.connect(g); g.connect(a.destination); src.start(t);
+  }
+  function sfx(name) {
+    if (name === 'pop') tone(360, 0.08, 'sine', 0.16, 760);
+    else if (name === 'hide') tone(520, 0.07, 'sine', 0.06, 240);
+    else if (name === 'hit') { thud(0.5); tone(240, 0.14, 'square', 0.1, 90); tone(880, 0.12, 'triangle', 0.12, 1400, 0.03); }
+    else if (name === 'miss') tone(150, 0.08, 'sine', 0.08, 110);
+    else if (name === 'tick') tone(1046, 0.05, 'square', 0.05);
+    else if (name === 'start') [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.12, 'triangle', 0.14, null, i * 0.09));
+    else if (name === 'end') [784, 659, 523, 392].forEach((f, i) => tone(f, 0.2, 'triangle', 0.14, null, i * 0.13));
+  }
+  $('soundBtn').addEventListener('click', () => {
+    muted = !muted;
+    $('soundBtn').setAttribute('aria-pressed', String(muted));
+    $('soundLabel').textContent = muted ? '소리 꺼짐' : '소리 켜짐';
+    $('waves').style.display = muted ? 'none' : ''; $('cross').style.display = muted ? '' : 'none';
+    if (!muted) audio();
+  });
+
+  // ---------- leaderboard store ----------
+  const CFG = window.MOLE_CONFIG || {};
+  const SB_URL = String(CFG.SUPABASE_URL || '').replace(/\/+$/, '');
+  const SB_KEY = String(CFG.SUPABASE_KEY || '');
+  const HAS_SERVER = /^https:\/\/[^\s]+$/.test(SB_URL) && !SB_URL.includes('YOUR-PROJECT') && SB_KEY.length > 20 && !SB_KEY.includes('YOUR-');
+  let records = [];          // top 10, sorted
+  let mode = HAS_SERVER ? 'loading' : 'local';   // 'loading' | 'server' | 'error' | 'local'
+  let myId = null;
+
+  function clean(id, d) {
+    if (!d) return null;
+    const score = Number(d.score);
+    if (!Number.isFinite(score) || score < 0 || score > 9999) return null;
+    const name = Array.from(String(d.name == null ? '???' : d.name)).slice(0, 3).join('') || '???';
+    const at = Number(d.at) || 0;
+    return { id: String(id), name, score: Math.floor(score), at };
+  }
+  const byRank = (a, b) => (b.score - a.score) || (a.at - b.at);
+
+  function setRecords(list) {
+    records = list.filter(Boolean).sort(byRank).slice(0, 10);
+    renderBest(); renderRanks();
+  }
+  function loadLocal() {
+    try {
+      const list = JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]');
+      return Array.isArray(list) ? list.map((r, i) => clean(r.id || ('l' + i), r)) : [];
+    } catch (e) { return []; }
+  }
+
+  function sbHeaders(extra) {
+    const h = Object.assign({ apikey: SB_KEY }, extra || {});
+    // 예전 방식의 anon 키(JWT)는 Authorization 헤더에도 넣어야 해요. 새 publishable 키는 apikey 헤더만 씁니다.
+    if (!SB_KEY.startsWith('sb_')) h.Authorization = 'Bearer ' + SB_KEY;
+    return h;
+  }
+  function withTimeout(p, ms) {
+    return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  }
+  async function fetchTop() {
+    const url = SB_URL + '/rest/v1/scores?select=id,name,score,created_at&order=score.desc,created_at.asc&limit=10';
+    const res = await fetch(url, { headers: sbHeaders() });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const rows = await res.json();
+    return rows.map((r) => clean(r.id, { name: r.name, score: r.score, at: Date.parse(r.created_at) || 0 }));
+  }
+  let refreshing = null;
+  function refresh() {
+    if (!HAS_SERVER) { mode = 'local'; setRecords(loadLocal()); return Promise.resolve(); }
+    if (refreshing) return refreshing;
+    refreshing = withTimeout(fetchTop(), 6000)
+      .then((list) => { mode = 'server'; setRecords(list); })
+      .catch(() => { mode = 'error'; renderRanks(); })
+      .finally(() => { refreshing = null; });
+    return refreshing;
+  }
+
+  async function saveEntry(entry) {
+    if (HAS_SERVER) {
+      let res;
+      try {
+        res = await withTimeout(fetch(SB_URL + '/rest/v1/scores', {
+          method: 'POST',
+          headers: sbHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+          body: JSON.stringify({ name: entry.name, score: entry.score })
+        }), 8000);
+      } catch (e) { throw { code: 'network' }; }
+      if (!res.ok) {
+        let msg = '';
+        try { msg = JSON.stringify(await res.json()); } catch (e) {}
+        throw { code: msg.includes('too_many_submissions') ? 'rate' : 'failed' };
+      }
+      const rows = await res.json().catch(() => []);
+      myId = rows && rows[0] ? String(rows[0].id) : null;
+      await refresh();
+      return;
+    }
+    const id = 'l' + entry.at;
+    const list = loadLocal().concat([{ id, name: entry.name, score: entry.score, at: entry.at }]).filter(Boolean).sort(byRank).slice(0, 10);
+    try { localStorage.setItem(LOCAL_KEY, JSON.stringify(list)); } catch (e) {}
+    myId = id;
+    setRecords(list);
+  }
+
+  function topScore() { return records.length ? records[0].score : 0; }
+  function rankFor(score) { return records.filter((r) => r.score >= score).length; }
+  function qualifies(score) { return score > 0 && rankFor(score) < 10; }
+
+  function renderBest() { $('best').textContent = topScore(); $('bestLineVal').textContent = topScore(); }
+  function renderRanks() {
+    const ol = $('ranks');
+    ol.textContent = '';
+    const medals = ['var(--gold)', 'var(--silver)', 'var(--bronze)'];
+    for (let i = 0; i < 10; i++) {
+      const r = records[i];
+      const li = document.createElement('li');
+      if (r && r.id === myId) li.className = 'mine';
+      const m = document.createElement('span');
+      m.className = 'medal'; m.textContent = i + 1;
+      if (i < 3) m.style.background = medals[i];
+      const n = document.createElement('span');
+      n.className = 'r-name' + (r ? '' : ' empty'); n.textContent = r ? r.name : '—';
+      const s = document.createElement('span');
+      s.className = 'r-score'; s.textContent = r ? r.score + '점' : '';
+      li.append(m, n, s);
+      ol.appendChild(li);
+    }
+    const dot = $('syncDot'), txt = $('syncText');
+    dot.classList.toggle('live', mode === 'server');
+    txt.textContent = mode === 'server' ? '모든 플레이어와 공유되는 순위예요.'
+      : mode === 'error' ? '순위 서버에 연결하지 못했어요. 잠시 후 다시 열어 주세요.'
+      : mode === 'local' ? '서버 설정 전이라 이 브라우저에만 저장돼요.'
+      : '순위를 불러오는 중…';
+  }
+  renderRanks();
+  refresh();
+  setInterval(() => { if (phase !== 'playing' && phase !== 'entry' && !document.hidden) refresh(); }, 20000);
+
+  // ---------- game ----------
+  let phase = 'ready', score = 0, active = -1, hit = -1, last = -1, endAt = 0, lastSec = 30, prevBest = 0, pendingScore = 0;
+  let tickId, hideId, spawnId, hitId;
+
+  function show(id) {
+    ['readyOv', 'overOv', 'entryOv'].forEach((k) => { $(k).hidden = k !== id; });
+  }
+  function paintHoles() {
+    holes.forEach((b, i) => {
+      b.classList.toggle('up', i === active || i === hit);
+      b.classList.toggle('hit', i === hit);
+    });
+  }
+  function paintTime(rem) {
+    const sec = Math.ceil(rem / 1000);
+    const low = phase === 'playing' && sec <= 5;
+    $('time').textContent = sec + '초';
+    $('time').classList.toggle('low', low);
+    $('bar').classList.toggle('low', low);
+    $('bar').setAttribute('aria-valuenow', String(sec));
+    $('barFill').style.width = (rem / DURATION * 100) + '%';
+  }
+  function stopAll() { clearInterval(tickId); clearTimeout(hideId); clearTimeout(spawnId); clearTimeout(hitId); }
+
+  function start() {
+    stopAll();
+    phase = 'playing'; score = 0; active = -1; hit = -1; last = -1; lastSec = 30; myId = null;
+    prevBest = topScore();
+    endAt = Date.now() + DURATION;
+    $('score').textContent = '0';
+    $('bestBtn').disabled = true;
+    $('boardOv').hidden = true;
+    show(null); paintHoles(); paintTime(DURATION);
+    sfx('start');
+    tickId = setInterval(() => {
+      const r = Math.max(0, endAt - Date.now());
+      if (r <= 0) { finish(); return; }
+      const sec = Math.ceil(r / 1000);
+      if (sec !== lastSec) { lastSec = sec; if (sec <= 5) sfx('tick'); }
+      paintTime(r);
+    }, 100);
+    spawnId = setTimeout(spawn, 500);
+  }
+  function spawn() {
+    if (phase !== 'playing') return;
+    let i; do { i = Math.floor(Math.random() * 9); } while (i === last);
+    last = i;
+    const progress = Math.min(1, (DURATION - (endAt - Date.now())) / DURATION);
+    const stay = Math.max(320, 800 - progress * 450) + Math.random() * 180;
+    sfx('pop');
+    active = i; paintHoles();
+    hideId = setTimeout(() => {
+      sfx('hide');
+      active = -1; paintHoles();
+      spawnId = setTimeout(spawn, 120 + Math.random() * 250);
+    }, stay);
+  }
+  function whack(i) {
+    if (phase !== 'playing') return;
+    if (active !== i) { sfx('miss'); return; }
+    sfx('hit');
+    clearTimeout(hideId); clearTimeout(spawnId); clearTimeout(hitId);
+    score++; $('score').textContent = score;
+    hit = i; active = -1; paintHoles();
+    hitId = setTimeout(() => { hit = -1; paintHoles(); }, 200);
+    spawnId = setTimeout(spawn, 250 + Math.random() * 200);
+  }
+  function finish() {
+    stopAll();
+    phase = 'over'; active = -1; hit = -1; paintHoles(); paintTime(0);
+    $('bestBtn').disabled = false;
+    sfx('end');
+    phase = 'checking';
+    refresh().finally(decideAfterGame);
+  }
+  function decideAfterGame() {
+    if (qualifies(score)) {
+      phase = 'entry'; pendingScore = score;
+      $('entryScore').textContent = score;
+      $('entryRank').textContent = (rankFor(score) + 1) + '등';
+      $('name').value = ''; $('entryErr').textContent = '';
+      $('submitBtn').disabled = false;
+      show('entryOv');
+      setTimeout(() => { try { $('name').focus(); } catch (e) {} }, 50);
+    } else {
+      showOver(-1);
+    }
+  }
+  function showOver(rankIdx) {
+    phase = 'over';
+    $('finalScore').textContent = score;
+    const isNewBest = rankIdx === 0 && score > prevBest;
+    $('newBest').hidden = !isNewBest;
+    $('rankMsg').hidden = !(rankIdx >= 0 && !isNewBest);
+    $('rankMsg').textContent = (rankIdx + 1) + '등에 올랐어요!';
+    $('bestLine').hidden = rankIdx >= 0;
+    renderBest();
+    show('overOv');
+  }
+
+  $('name').addEventListener('input', (e) => {
+    if (e.isComposing) return;
+    const v = Array.from(e.target.value).slice(0, 3).join('');
+    if (v !== e.target.value) e.target.value = v;
+  });
+  $('entryForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (phase !== 'entry') return;
+    const name = Array.from($('name').value.trim()).slice(0, 3).join('') || '???';
+    const entry = { name, score: pendingScore, at: Date.now() };
+    const rankIdx = rankFor(entry.score);
+    $('submitBtn').disabled = true; $('entryErr').textContent = '';
+    try {
+      await saveEntry(entry);
+      sfx('start');
+      showOver(rankIdx);
+      renderRanks();
+      $('boardOv').hidden = false;
+    } catch (err) {
+      $('submitBtn').disabled = false;
+      $('entryErr').textContent = err && err.code === 'rate'
+        ? '조금 전에 기록을 등록했어요. 20초 뒤에 다시 눌러 주세요.'
+        : err && err.code === 'network'
+          ? '인터넷 연결을 확인하고 다시 눌러 주세요.'
+          : '기록을 저장하지 못했어요. 다시 눌러 주세요.';
+    }
+  });
+  $('skipBtn').addEventListener('click', () => { if (phase === 'entry') showOver(-1); });
+
+  function openBoard() { if (phase === 'playing') return; renderRanks(); refresh(); $('boardOv').hidden = false; $('closeBoard').focus(); }
+  function closeBoard() { $('boardOv').hidden = true; }
+  $('bestBtn').addEventListener('click', openBoard);
+  $('closeBoard').addEventListener('click', closeBoard);
+  $('boardOv').addEventListener('click', (e) => { if (e.target === $('boardOv')) closeBoard(); });
+  $('boardOv').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBoard(); });
+  document.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.act === 'start') start(); else openBoard();
+  }));
+
+  paintTime(DURATION);
+})();
+</script>
+
+</body>
+</html>
